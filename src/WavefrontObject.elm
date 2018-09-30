@@ -1,4 +1,11 @@
-module WavefrontObject exposing (..)
+module WavefrontObject
+    exposing
+        ( Container
+        , FaceVertices(..)
+        , Group
+        , Object
+        , parseContainer
+        )
 
 -- http://www.martinreddy.net/gfx/3d/OBJ.spec
 
@@ -7,6 +14,9 @@ import Char
 import Math.Vector3 as Vec3 exposing (Vec3, vec3)
 import Parser exposing ((|.), (|=), Parser)
 import Set exposing (Set)
+
+
+-- API
 
 
 type alias Container =
@@ -39,8 +49,23 @@ type FaceVertices
     | VTN (List ( Int, Int, Int ))
 
 
+containerParser : String -> Parser Container
+containerParser customId =
+    Parser.loop (emptyContainer customId) parseHelp
+
+
+parseContainer : String -> String -> Result String Container
+parseContainer customId string =
+    Err "ni"
+
+
 
 -- Parser bits and pieces
+
+
+newline : Parser ()
+newline =
+    Parser.symbol "\n"
 
 
 isSpace : Char -> Bool
@@ -61,12 +86,12 @@ atLeastOneSpace =
 
 
 maybeLeadingMinus : Parser number -> Parser number
-maybeLeadingMinus parser =
+maybeLeadingMinus p =
     Parser.oneOf
         [ Parser.succeed negate
             |. Parser.symbol "-"
-            |= parser
-        , parser
+            |= p
+        , p
         ]
 
 
@@ -162,8 +187,7 @@ type Line
 parseLine : Parser Line
 parseLine =
     Parser.oneOf
-        [ empty
-        , comment
+        [ comment
         , materialLibrary
         , objectName
         , vertex "v" GeometricVertex
@@ -173,6 +197,7 @@ parseLine =
         , useMaterial
         , smoothingGroup
         , face
+        , empty
         ]
 
 
@@ -180,13 +205,16 @@ empty : Parser Line
 empty =
     Parser.succeed Empty
         |. spaces
-        |. Parser.end
+
+
+
+--         |. Parser.end
 
 
 comment : Parser Line
 comment =
     Parser.succeed Empty
-        |. Parser.symbol "#"
+        |. Parser.lineComment "#"
 
 
 materialLibrary : Parser Line
@@ -196,7 +224,10 @@ materialLibrary =
         |. spaces
         |= fileName
         |. spaces
-        |. Parser.end
+
+
+
+--         |. Parser.end
 
 
 objectName : Parser Line
@@ -206,7 +237,10 @@ objectName =
         |. spaces
         |= nameIdentifier
         |. spaces
-        |. Parser.end
+
+
+
+--         |. Parser.end
 
 
 vertex : String -> (Vec3 -> Line) -> Parser Line
@@ -223,7 +257,10 @@ vertex keyword lineConstructor =
             , Parser.succeed 0
             ]
         |. spaces
-        |. Parser.end
+
+
+
+--         |. Parser.end
 
 
 groupNames : Parser Line
@@ -234,7 +271,10 @@ groupNames =
         |. atLeastOneSpace
         |= nameIdentifier
         |. spaces
-        |. Parser.end
+
+
+
+--         |. Parser.end
 
 
 useMaterial : Parser Line
@@ -244,7 +284,10 @@ useMaterial =
         |. spaces
         |= nameIdentifier
         |. spaces
-        |. Parser.end
+
+
+
+--         |. Parser.end
 
 
 smoothingGroup : Parser Line
@@ -254,7 +297,10 @@ smoothingGroup =
         |. spaces
         |= Parser.int
         |. spaces
-        |. Parser.end
+
+
+
+--         |. Parser.end
 
 
 face : Parser Line
@@ -263,7 +309,10 @@ face =
         |. Parser.keyword "f"
         |= Parser.loop Nothing faceHelp
         |. spaces
-        |. Parser.end
+
+
+
+--         |. Parser.end
 
 
 faceHelp : Maybe FaceVertices -> Parser (Parser.Step (Maybe FaceVertices) FaceVertices)
@@ -468,3 +517,21 @@ apply line c =
 
         Face faceVertices ->
             withLastGroup c <| \group -> Ok { group | faces = faceVertices :: group.faces }
+
+
+parseHelp : Container -> Parser (Parser.Step Container Container)
+parseHelp container =
+    let
+        makeResult line loopControl =
+            apply line container
+                |> Result.map loopControl
+    in
+    Parser.succeed makeResult
+        |= parseLine
+        |= Parser.oneOf
+            [ Parser.succeed Parser.Loop
+                |. newline
+            , Parser.succeed Parser.Done
+                |. Parser.end
+            ]
+        |> Parser.andThen resultToParser

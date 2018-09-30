@@ -36,10 +36,9 @@ update msg model =
 --
 
 
-parse : String -> Result String WavefrontObject.Line
+-- parse : String -> Result String WavefrontObject.Container
 parse s =
-    Parser.run WavefrontObject.parseLine s
-        |> Result.mapError Debug.toString
+    Parser.run (WavefrontObject.parseContainer "test") s
 
 
 
@@ -55,13 +54,17 @@ view model =
             , Html.Attributes.rows 300
             ]
             [ text model.text ]
-        , model.text
-            |> String.split "\n"
-            |> List.map (parse >> Debug.toString)
-            |> String.join "\n"
-            |> text
-            |> List.singleton
-            |> textarea [ Html.Attributes.cols 200 ]
+        , case parse model.text of
+            Ok c ->
+                textarea
+                    [ Html.Attributes.cols 100
+                    ]
+                    [ c |> Debug.toString |> text ]
+
+            Err e ->
+                e
+                    |> List.map (Debug.toString >> text >> List.singleton >> div [])
+                    |> div []
         ]
 
 
