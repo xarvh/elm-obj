@@ -9,18 +9,25 @@ import Parser exposing ((|.), (|=), Parser)
 import Set exposing (Set)
 
 
-type alias WavefrontObject =
+type alias Container =
+    { customId : String
+    , materialLibraries : List String
+    , objects : List Object
+    }
+
+
+type alias Object =
     { name : String
-    , geometricVertices : Array Vec3
-    , textureVertices : Array Vec3
-    , normalVertices : Array Vec3
+    , geometricVertices : List Vec3
+    , textureVertices : List Vec3
+    , normalVertices : List Vec3
     , groups : List Group
     }
 
 
 type alias Group =
-    { name : String
-    , maybeMaterial : {}
+    { names : List String
+    , maybeMaterialId : Maybe String
     , faces : List FaceVertices
     }
 
@@ -30,16 +37,6 @@ type FaceVertices
     | VT (List ( Int, Int ))
     | VN (List ( Int, Int ))
     | VTN (List ( Int, Int, Int ))
-
-
-
-apply : Line -> WavefrontObject -> WavefrontObject
-apply l obj =
-  -- TODO
-  obj
-
-
-
 
 
 
@@ -109,8 +106,8 @@ resultToParser r =
             Parser.problem s
 
 
-name : Parser String
-name =
+nameIdentifier : Parser String
+nameIdentifier =
     let
         validSymbols =
             "_.-"
@@ -162,8 +159,8 @@ type Line
     | Face FaceVertices
 
 
-line : Parser Line
-line =
+parseLine : Parser Line
+parseLine =
     Parser.oneOf
         [ empty
         , comment
@@ -207,7 +204,7 @@ objectName =
     Parser.succeed ObjectName
         |. Parser.keyword "o"
         |. spaces
-        |= name
+        |= nameIdentifier
         |. spaces
         |. Parser.end
 
@@ -235,7 +232,7 @@ groupNames =
     Parser.succeed (List.singleton >> GroupNames)
         |. Parser.keyword "g"
         |. atLeastOneSpace
-        |= name
+        |= nameIdentifier
         |. spaces
         |. Parser.end
 
@@ -245,7 +242,7 @@ useMaterial =
     Parser.succeed UseMaterialId
         |. Parser.keyword "usemtl"
         |. spaces
-        |= name
+        |= nameIdentifier
         |. spaces
         |. Parser.end
 
@@ -377,3 +374,97 @@ parseVTN vtn_list =
         |= index
         |. Parser.symbol "/"
         |= index
+
+
+
+-- Object parser
+
+
+emptyContainer : String -> Container
+emptyContainer id =
+    { customId = id
+    , materialLibraries = []
+    , objects = []
+    }
+
+
+emptyObject : String -> Object
+emptyObject name =
+    { name = name
+    , geometricVertices = []
+    , textureVertices = []
+    , normalVertices = []
+    , groups = []
+    }
+
+
+emptyGroup : List String -> Group
+emptyGroup names =
+    { names = names
+    , maybeMaterialId = Nothing
+    , faces = []
+    }
+
+
+withLastObject : Container -> (Object -> Result String Object) -> Result String Container
+withLastObject container updateObject =
+    case container.objects of
+        [] ->
+            Err "you have to declare an 'o'bject before using this"
+
+        oldObj :: os ->
+            updateObject oldObj
+                |> Result.map (\newObj -> { container | objects = newObj :: os })
+
+
+withLastGroup : Container -> (Group -> Result String Group) -> Result String Container
+withLastGroup container updateGroup =
+    let
+        updateObject object =
+            case object.groups of
+                [] ->
+                    Err "you have to declare an 'g'roup before using this"
+
+                oldGroup :: gs ->
+                    updateGroup oldGroup
+                        |> Result.map (\newGroup -> { object | groups = newGroup :: gs })
+    in
+    withLastObject container updateObject
+
+
+apply : Line -> Container -> Result String Container
+apply line c =
+    case line of
+        -- container
+        Empty ->
+            Ok c
+
+        MaterialLibraryFileName name ->
+            Ok { c | materialLibraries = name :: c.materialLibraries }
+
+        ObjectName name ->
+            Ok { c | objects = emptyObject name :: c.objects }
+
+        -- object
+        GeometricVertex v ->
+            withLastObject c <| \obj -> Ok { obj | geometricVertices = v :: obj.geometricVertices }
+
+        VertexNormal vn ->
+            withLastObject c <| \obj -> Ok { obj | normalVertices = vn :: obj.normalVertices }
+
+        TextureVertex vt ->
+            withLastObject c <| \obj -> Ok { obj | textureVertices = vt :: obj.textureVertices }
+
+        GroupNames names ->
+            withLastObject c <| \obj -> Ok { obj | groups = emptyGroup names :: obj.groups }
+
+        -- group
+        UseMaterialId id ->
+            withLastGroup c <| \group -> Ok { group | maybeMaterialId = Just id }
+
+        SmoothingGroupNumber number ->
+            -- TODO do not ignore
+            Ok c
+
+        Face faceVertices ->
+            withLastGroup c <| \group -> Ok { group | faces = faceVertices :: group.faces }

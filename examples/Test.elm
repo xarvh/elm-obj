@@ -38,7 +38,7 @@ update msg model =
 
 parse : String -> Result String WavefrontObject.Line
 parse s =
-    Parser.run WavefrontObject.line s
+    Parser.run WavefrontObject.parseLine s
         |> Result.mapError Debug.toString
 
 
