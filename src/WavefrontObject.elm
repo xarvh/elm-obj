@@ -13,6 +13,7 @@ module WavefrontObject
 import Array exposing (Array)
 import Char
 import Math.Vector3 as Vec3 exposing (Vec3, vec3)
+import Maybe.Extra
 import Parser exposing ((|.), (|=), Parser)
 import Set exposing (Set)
 
@@ -54,6 +55,129 @@ parseContainer string =
     string
         |> Parser.run containerParser
         |> Result.mapError Parser.deadEndsToString
+
+
+
+-- Stuff
+
+
+type alias VertexAttributes =
+    { v : Vec3
+    , n : Vec3
+    }
+
+
+type alias Mesh =
+    { attributes : List VertexAttributes
+    , indices : List ( Int, Int, Int )
+    }
+
+
+
+--
+
+
+type alias MeshAccumulator =
+    { attributes : List VertexAttributes
+    , indexByAttributes : Dict String Int
+    , nextIndex : Int
+    , tris : List ( Int, Int, Int )
+    }
+
+
+vertexAttributesToString : VertexAttributes -> String
+vertexAttributesToString =
+    Debug.toString
+
+
+addVertexAttributes : VertexAttributes -> MeshAccumulator -> ( MeshAccumulator, Int )
+addVertexAttributes attrs accu =
+    let
+        asString =
+            vertexAttributesToString attrs
+    in
+    case Dict.get asString accu.indexByAttributes of
+        Just index ->
+            ( accu, index )
+
+        Nothing ->
+            ( { accu
+                | attributes = attrs :: accu.attributes
+                , indexByAttributes = Dict.insert asString accu.nextIndex
+                , nextIndex = accu.nextIndex + 1
+              }
+            , accu.nextIndex
+            )
+
+
+addTriangle : ( VertexAttributes, VertexAttributes, VertexAttributes ) -> MeshAccumulator -> MeshAccumulator
+addTriangle ( a, b, c ) accu =
+    let
+        ( accuA, indexA ) =
+            addVertexAttributes a accu
+
+        ( accuB, indexB ) =
+            addVertexAttributes b accuA
+
+        ( accuC, indexC ) =
+            addVertexAttributes c accuB
+    in
+    { accuC | tris = ( indexA, indexB, index ) :: accuC.tris }
+
+
+faceToTriangles : List a -> List ( a, a, a ) -> List ( a, a, a )
+faceToTriangles vertices tris =
+    case vertices of
+        a :: b :: c :: vs ->
+            facesToTriangles (b :: c :: vs) (( a, b, c ) :: tris)
+
+        _ ->
+            tris
+
+
+addFace : List VertexAttributes -> MeshAccumulator -> MeshAccumulator
+addFace face accu =
+    face
+        |> faceToTriangles []
+        |> List.foldl addTriangle accu
+
+
+normalizeFace : FaceVertices -> List ( Int, Int )
+normalizeFace face =
+    case face of
+        V list ->
+            List.map (\v -> ( v, 0 )) list
+
+        VT list ->
+            List.map (\( v, t ) -> ( v, 0 )) list
+
+        VN list ->
+            list
+
+        VTN list ->
+            List.map (\( v, t, n ) -> ( v, n ))
+
+
+objectToMesh : Object -> Mesh
+objectToMesh obj =
+    let
+        vs =
+            Array.fromList (vec3 0 0 0 :: obj.geometricVertices)
+
+        ns =
+            Array.fromList (vec3 0 0 0 :: obj.normalVertices)
+
+        resolveAttributes : ( Int, Int ) -> Maybe VertexAttributes
+        resolveAttributes ( vIndex, nIndex ) =
+            Maybe.map2 (\v n -> { v = v, n = n })
+                (Array.get vIndex vs)
+                (Array.get nIndex ns)
+
+        resolveFace : List ( Int, Int ) -> Maybe (List VertexAttributes)
+        resolveFace face =
+            Maybe.Extra.traverse resolveAttributes face
+    in
+    xx
 
 
 
