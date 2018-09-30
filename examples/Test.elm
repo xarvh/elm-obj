@@ -36,15 +36,6 @@ update msg model =
 --
 
 
--- parse : String -> Result String WavefrontObject.Container
-parse s =
-    Parser.run (WavefrontObject.parseContainer "test") s
-
-
-
---
-
-
 view model =
     div
         [ style "display" "flex" ]
@@ -54,7 +45,7 @@ view model =
             , Html.Attributes.rows 300
             ]
             [ text model.text ]
-        , case parse model.text of
+        , case WavefrontObject.parseContainer model.text of
             Ok c ->
                 textarea
                     [ Html.Attributes.cols 100
@@ -62,9 +53,9 @@ view model =
                     [ c |> Debug.toString |> text ]
 
             Err e ->
-                e
-                    |> List.map (Debug.toString >> text >> List.singleton >> div [])
-                    |> div []
+                div
+                    []
+                    [ text e ]
         ]
 
 

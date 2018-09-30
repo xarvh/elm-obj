@@ -4,6 +4,7 @@ module WavefrontObject
         , FaceVertices(..)
         , Group
         , Object
+        , containerParser
         , parseContainer
         )
 
@@ -20,8 +21,7 @@ import Set exposing (Set)
 
 
 type alias Container =
-    { customId : String
-    , materialLibraries : List String
+    { materialLibraries : List String
     , objects : List Object
     }
 
@@ -49,14 +49,51 @@ type FaceVertices
     | VTN (List ( Int, Int, Int ))
 
 
-containerParser : String -> Parser Container
-containerParser customId =
-    Parser.loop (emptyContainer customId) parseHelp
+parseContainer : String -> Result String Container
+parseContainer string =
+    string
+        |> Parser.run containerParser
+        |> Result.mapError Parser.deadEndsToString
 
 
-parseContainer : String -> String -> Result String Container
-parseContainer customId string =
-    Err "ni"
+
+-- API, Advanced
+
+
+containerParser : Parser Container
+containerParser =
+    Parser.loop emptyContainer parseHelp
+        |> Parser.map containerReverseLists
+
+
+type Line
+    = Empty
+    | MaterialLibraryFileName String
+    | ObjectName String
+    | GeometricVertex Vec3
+    | VertexNormal Vec3
+    | TextureVertex Vec3
+    | GroupNames (List String)
+    | UseMaterialId String
+    | SmoothingGroupNumber Int
+    | Face FaceVertices
+
+
+lineParser : Parser Line
+lineParser =
+    Parser.oneOf
+        [ comment
+        , materialLibrary
+        , objectName
+        , vertex "v" GeometricVertex
+        , vertex "vn" VertexNormal
+        , vertex "vt" TextureVertex
+        , groupNames
+        , useMaterial
+        , smoothingGroup
+        , face
+        , empty
+        ]
 
 
 
@@ -171,44 +208,10 @@ fileName =
 -- Line Parser
 
 
-type Line
-    = Empty
-    | MaterialLibraryFileName String
-    | ObjectName String
-    | GeometricVertex Vec3
-    | VertexNormal Vec3
-    | TextureVertex Vec3
-    | GroupNames (List String)
-    | UseMaterialId String
-    | SmoothingGroupNumber Int
-    | Face FaceVertices
-
-
-parseLine : Parser Line
-parseLine =
-    Parser.oneOf
-        [ comment
-        , materialLibrary
-        , objectName
-        , vertex "v" GeometricVertex
-        , vertex "vn" VertexNormal
-        , vertex "vt" TextureVertex
-        , groupNames
-        , useMaterial
-        , smoothingGroup
-        , face
-        , empty
-        ]
-
-
 empty : Parser Line
 empty =
     Parser.succeed Empty
         |. spaces
-
-
-
---         |. Parser.end
 
 
 comment : Parser Line
@@ -226,10 +229,6 @@ materialLibrary =
         |. spaces
 
 
-
---         |. Parser.end
-
-
 objectName : Parser Line
 objectName =
     Parser.succeed ObjectName
@@ -237,10 +236,6 @@ objectName =
         |. spaces
         |= nameIdentifier
         |. spaces
-
-
-
---         |. Parser.end
 
 
 vertex : String -> (Vec3 -> Line) -> Parser Line
@@ -259,10 +254,6 @@ vertex keyword lineConstructor =
         |. spaces
 
 
-
---         |. Parser.end
-
-
 groupNames : Parser Line
 groupNames =
     -- TODO: support more than one group name
@@ -271,10 +262,6 @@ groupNames =
         |. atLeastOneSpace
         |= nameIdentifier
         |. spaces
-
-
-
---         |. Parser.end
 
 
 useMaterial : Parser Line
@@ -286,10 +273,6 @@ useMaterial =
         |. spaces
 
 
-
---         |. Parser.end
-
-
 smoothingGroup : Parser Line
 smoothingGroup =
     Parser.succeed SmoothingGroupNumber
@@ -299,20 +282,12 @@ smoothingGroup =
         |. spaces
 
 
-
---         |. Parser.end
-
-
 face : Parser Line
 face =
     Parser.succeed Face
         |. Parser.keyword "f"
         |= Parser.loop Nothing faceHelp
         |. spaces
-
-
-
---         |. Parser.end
 
 
 faceHelp : Maybe FaceVertices -> Parser (Parser.Step (Maybe FaceVertices) FaceVertices)
@@ -429,10 +404,9 @@ parseVTN vtn_list =
 -- Object parser
 
 
-emptyContainer : String -> Container
-emptyContainer id =
-    { customId = id
-    , materialLibraries = []
+emptyContainer : Container
+emptyContainer =
+    { materialLibraries = []
     , objects = []
     }
 
@@ -527,7 +501,7 @@ parseHelp container =
                 |> Result.map loopControl
     in
     Parser.succeed makeResult
-        |= parseLine
+        |= lineParser
         |= Parser.oneOf
             [ Parser.succeed Parser.Loop
                 |. newline
@@ -535,3 +509,35 @@ parseHelp container =
                 |. Parser.end
             ]
         |> Parser.andThen resultToParser
+
+
+
+-- Reverse Lists
+
+
+reverseAndMap : (a -> b) -> List a -> List b
+reverseAndMap f list =
+    List.foldl (f >> (::)) [] list
+
+
+containerReverseLists : Container -> Container
+containerReverseLists container =
+    { container | objects = reverseAndMap objectReverseLists container.objects }
+
+
+objectReverseLists : Object -> Object
+objectReverseLists object =
+    { object
+        | geometricVertices = List.reverse object.geometricVertices
+        , textureVertices = List.reverse object.textureVertices
+        , normalVertices = List.reverse object.normalVertices
+        , groups = reverseAndMap groupReverseLists object.groups
+    }
+
+
+groupReverseLists : Group -> Group
+groupReverseLists group =
+    { group
+        | faces = List.reverse group.faces
+        , names = List.reverse group.names
+    }
