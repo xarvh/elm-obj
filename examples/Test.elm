@@ -6,7 +6,12 @@ import Html.Attributes exposing (style, value)
 import Html.Events exposing (onInput)
 import Parser exposing (Parser)
 import WavefrontObject
+import WebglObj
 
+
+parse =
+--     WavefrontObject.parseContainer
+  WebglObj.parseMesh
 
 type alias Model =
     { text : String
@@ -45,7 +50,7 @@ view model =
             , Html.Attributes.rows 300
             ]
             [ text model.text ]
-        , case WavefrontObject.parseContainer model.text of
+        , case parse model.text of
             Ok c ->
                 textarea
                     [ Html.Attributes.cols 100
@@ -55,7 +60,7 @@ view model =
             Err e ->
                 div
                     []
-                    [ text e ]
+                    [ text (Debug.toString e) ]
         ]
 
 

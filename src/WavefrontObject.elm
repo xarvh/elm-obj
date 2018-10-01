@@ -6,6 +6,7 @@ module WavefrontObject
         , Line(..)
         , Object
         , containerParser
+        , customContainerParser
         , lineParser
         , parseContainer
         )
@@ -62,12 +63,6 @@ parseContainer string =
 -- API, Advanced
 
 
-containerParser : Parser Container
-containerParser =
-    Parser.loop emptyContainer parseHelp
-        |> Parser.map containerReverseLists
-
-
 type Line
     = Empty
     | MaterialLibraryFileName String
@@ -96,6 +91,33 @@ lineParser =
         , face
         , empty
         ]
+
+
+customContainerParser : (Line -> output -> Result String output) -> output -> Parser output
+customContainerParser applyLine initialOutput =
+    let
+        makeResult : output -> Line -> (output -> Parser.Step output output) -> Result String (Parser.Step output output)
+        makeResult output line loopControl =
+            Result.map loopControl (applyLine line output)
+
+        parseHelp : output -> Parser (Parser.Step output output)
+        parseHelp output =
+            Parser.succeed (makeResult output)
+                |= lineParser
+                |= Parser.oneOf
+                    [ Parser.succeed Parser.Loop
+                        |. newline
+                    , Parser.succeed Parser.Done
+                        |. Parser.end
+                    ]
+                |> Parser.andThen resultToParser
+    in
+    Parser.loop initialOutput parseHelp
+
+
+containerParser : Parser Container
+containerParser =
+    Parser.map containerReverseLists (customContainerParser apply emptyContainer)
 
 
 
@@ -493,24 +515,6 @@ apply line c =
 
         Face faceVertices ->
             withLastGroup c <| \group -> Ok { group | faces = faceVertices :: group.faces }
-
-
-parseHelp : Container -> Parser (Parser.Step Container Container)
-parseHelp container =
-    let
-        makeResult line loopControl =
-            apply line container
-                |> Result.map loopControl
-    in
-    Parser.succeed makeResult
-        |= lineParser
-        |= Parser.oneOf
-            [ Parser.succeed Parser.Loop
-                |. newline
-            , Parser.succeed Parser.Done
-                |. Parser.end
-            ]
-        |> Parser.andThen resultToParser
 
 
 
